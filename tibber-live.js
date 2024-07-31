@@ -8,7 +8,6 @@ const {
     TIBBER_HOME_ID,
     PVOUTPUT_API_KEY,
     PVOUTPUT_SYSTEM_ID,
-    KNMI_API_KEY
 } = process.env;
 
 let lastUploadMinute = null;
@@ -18,15 +17,21 @@ let powerReadings = [];
 
 async function uploadToPVOutput(data) {
     const timestamp = new Date(data.timestamp);
-    const currentMinute = Math.floor(timestamp.getMinutes() / 5) * 5 + 1; // Round down to the nearest 5-minute block, + 1 to upload same as solar panels
+    const minute = timestamp.getMinutes();
+    const currentMinute = (minute % 5 === 1) ? minute + 5 : Math.floor(minute / 5) * 5 + 6; // Round down to the nearest 5-minute block, + 1 to upload same as solar panels
     
+        
     if (data.power !== null && data.power !== undefined) {
         powerReadings.push(data.power);
         //if(data.power) console.log("Received power reading", data.power)
     }
-
-    if (lastUploadMinute !== currentMinute && !uploading) {
+    if ((lastUploadMinute !== currentMinute ||
+        ((currentMinute - lastUploadMinute + 60) % 60 >= 5)) && !uploading) {
         uploading = true
+        const currentprice = await tibberQuery.getCurrentEnergyPrice(TIBBER_HOME_ID)
+        const debitTarrif = currentprice.total * 100
+        const creditTarrif = currentprice.total * 100
+
         const date = timestamp.toISOString().split('T')[0].replace(/-/g, ''); // yyyymmdd format
         const time = timestamp.toTimeString().split(' ')[0].slice(0, 5); // hh:mm format
         const consumption = (data.accumulatedConsumption * 1000).toFixed(0); // kWh to Wh
@@ -44,6 +49,8 @@ async function uploadToPVOutput(data) {
             //v2: exported,
             v3: consumption,
             v4: powerConsumed,
+            v7: creditTarrif,
+            v8: debitTarrif
             //n: 1
         });
 
@@ -64,7 +71,7 @@ async function uploadToPVOutput(data) {
             } else {
                 console.log(`Data uploaded successfully for ${date} at ${time}`);
                 lastUploadMinute = currentMinute;
-                console.log(powerReadings.length > 1 ? "Average (" + powerReadings.length + " readings) Power: " : "Power:", powerConsumed, "Exported:", exported, "Consumption:", consumption)
+                console.log(powerReadings.length > 1 ? "Average (" + powerReadings.length + " readings) Power: " : "Power:", powerConsumed, "Exported:", exported, "Consumption:", consumption, "Tarrif:", creditTarrif)
                 // Clear readings for the next interval
                 powerReadings = [];
                 uploading = false;
@@ -73,40 +80,6 @@ async function uploadToPVOutput(data) {
             console.error(`Error uploading data to PVOutput: ${error.message}`);
             uploading = false;
         }
-    }
-}
-
-async function fetchKNMITemperature() {
-    // Example function to fetch temperature from KNMI API
-    const api_url = "https://api.dataplatform.knmi.nl/open-data";
-    const api_version = "v1";
-    const dataset_name = "Actuele10mindataKNMIstations";
-    const dataset_version = "2";
-
-    const now = new Date();
-    const timestamp_one_hour_ago = new Date(now - 3600000 - (now.getMinutes() % 10) * 60000);
-    const filename = `KMDS__OPER_P___10M_OBS_L2_${timestamp_one_hour_ago.toISOString().replace(/[-:]/g, '').slice(0, 12)}.nc`;
-
-    const endpoint = `${api_url}/${api_version}/datasets/${dataset_name}/versions/${dataset_version}/files/${filename}/url`;
-
-    try {
-        const get_file_response = await fetch(endpoint, { headers: { "Authorization": KNMI_API_KEY } });
-        if (!get_file_response.ok) {
-            throw new Error("Unable to retrieve download url for file");
-        }
-
-        const { temporaryDownloadUrl } = await get_file_response.json();
-        const dataResponse = await fetch(temporaryDownloadUrl);
-        const data = await dataResponse.text();
-
-        // Parse the data to extract the temperature for Zwolle
-        // Assuming the temperature data is in the form of a CSV or similar format
-        // Placeholder: parse CSV and extract the temperature for the closest station to Zwolle
-        const temperature = parseFloat(extractTemperatureFromData(data));
-        return temperature;
-    } catch (error) {
-        console.error(`Error fetching KNMI data: ${error.message}`);
-        return null;
     }
 }
 
@@ -156,8 +129,8 @@ tibberFeed.on('connected', () => {
     //console.log('Connected to Tibber!');
 });
 
-tibberFeed.on('connection_ack', () => {
-    console.log('Connection reset');
+tibberFeed.on('connection_ack', async () => {
+    console.log('Connection reset', new Date().toLocaleTimeString("nl"));
 });
 
 tibberFeed.on('disconnected', async () => {
@@ -177,8 +150,6 @@ tibberFeed.on('log', log => {
 });
 
 tibberFeed.on('data', async data => {
-    // const temperature = await fetchKNMITemperature();
-    // console.log("temperature", temperature)
     //console.log(data)
     uploadToPVOutput(data);
 });
