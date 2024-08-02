@@ -1,6 +1,9 @@
 {
 	"dependencies": {
 		"dotenv": "^16.4.5",
-		"tibber-api": "^5.1.11"
+		"tibber-api": "^5.1.11",		
+		"csv-parser": "^3.0.0",
+		"csv-write-stream": "^2.0.0",
+		"date-fns": "^3.6.0"
 	}
 }
