@@ -25,6 +25,7 @@ async function uploadToPVOutput(data) {
         powerReadings.push(data.power);
         //if(data.power) console.log("Received power reading", data.power)
     }
+    console.log(((currentMinute - lastUploadMinute + 60) % 60 >= 5))
     if ((lastUploadMinute !== currentMinute ||
         ((currentMinute - lastUploadMinute + 60) % 60 >= 5)) && !uploading) {
         uploading = true
@@ -46,12 +47,12 @@ async function uploadToPVOutput(data) {
         const body = new URLSearchParams({
             d: date,
             t: time,
-            //v2: exported,
+            v2: exported,
             v3: consumption,
             v4: powerConsumed,
             v7: creditTarrif,
             v8: debitTarrif
-            //n: 1
+            //n: 1 // Use v2 and/or v4 only
         });
 
         try {
